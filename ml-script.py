@@ -27,12 +27,10 @@ for name in files:
     data.append(pd.read_csv(full_rel_path, sep=",", header=None, skiprows=3)) # First 3 rows have headers that I don't want
     data[i] = data[i].drop(data[i].columns[0], axis=1)
     data[i] = data[i].replace('<1', '0.1')
-    data[i].apply(pd.to_numeric)
     data[i].columns = ['AP ' + name + ' interest', name + ' interest']
-    data[i]['AP ' + name + ' interest (scaled)'] = scaler.fit_transform(data[i]['AP ' + name + ' interest'].values.reshape(-1,1))
-    data[i][name + ' interest (scaled)'] = scaler.fit_transform(data[i][name + ' interest'].values.reshape(-1,1))
-    data[i] = data[i].drop('AP ' + name + ' interest', 1)
-    data[i] = data[i].drop(name + ' interest', 1)
+    data[i]['AP ' + name + ' interest'] = pd.to_numeric(data[i]['AP ' + name + ' interest'],errors='coerce')
+    data[i][name + ' interest'] = pd.to_numeric(data[i][name + ' interest'],errors='coerce')
+    data[i] = data[i] / 100
     dataset = data[i].to_numpy()
 
 # %% [markdown]
@@ -51,7 +49,6 @@ for df in data:
         ap_diff.append((ap_mean - ap_interest) ** 2) # must be squared because the negative and positive versions cause issues. 
         field_diff.append((field_mean - field_interest)**2)
     dev_stats.append(pd.DataFrame(list(zip(ap_diff, field_diff)),columns =['AP Interest DEV Stat', 'Field DEV Stat']))
-
 # %% [markdown]
 # The above cell takes all of the data processed, calculated the DEV stat, and adds it to the dataframe
 
@@ -80,7 +77,7 @@ class PredictionModel(nn.Module):
         modules = []
         for layer in layers:
             modules.append(nn.Linear(layer[0], layer[1]))
-            modules.append(nn.Tanh())
+            modules.append(nn.ReLU())
         modules.pop()
         self.runModel = nn.Sequential(*modules).to(device)
     def forward(self, x):
@@ -91,38 +88,48 @@ class PredictionModel(nn.Module):
 
 
 # %%
-import torch 
+import torch
+import sys 
+from torch.autograd import Variable
 from shutil import copyfile
 import os
 from livelossplot import PlotLosses 
 # ----------CONFIG---------
 learning_rate = 1e-4
+epochs_train = 100000
 #---------END CONFIG----------
-model = PredictionModel([[195,150],[150,110],[110,70],[70,30],[30,1]])
+model = PredictionModel([[195,130],[130,30],[30,1]])
 resuming = False
 loss_fn = torch.nn.MSELoss(reduction='sum')
 optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
 if os.path.isfile('models/interim_model.tar'):
-    resuming = True
-    checkpoint = torch.load('models/interim_model.tar')
-    print(checkpoint.keys())
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    epoch = checkpoint['epoch']
-    loss1 = checkpoint['loss']
-x = torch.tensor(ap_input).to(torch.float).to(model.getDevice())
-y = torch.tensor(field_input).to(torch.float).to(model.getDevice())
+    try:
+        checkpoint = torch.load('models/interim_model.tar')
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        epoch = checkpoint['epoch']
+        loss_cp = checkpoint['loss']
+        resuming = True
+    except RuntimeError:
+        print("Could not import model. File exists")
+        pr = input("Continue? [y/n]: ")
+        if pr.lower() != "y":
+            sys.exit(127)
+x = ap_input
+y = field_input
 liveloss = PlotLosses()
-for t in range(100):
+for t in range(epochs_train):
+    x = Variable(torch.from_numpy(np.array(x))).to(torch.float).to(model.getDevice())
+    y = Variable(torch.from_numpy(np.array(y))).to(torch.float).to(model.getDevice())
     if resuming:
         it = epoch + t
-        loss = loss1
+        loss = loss_cp
     else: 
         it = t
-    print(it)
     logs = {}
     y_pred = model(x)
     loss = loss_fn(y_pred, y)
+    logs['train log loss'] = loss.item()
     if it % 100 == 99:
         torch.save({
             'epoch': it,
@@ -130,23 +137,19 @@ for t in range(100):
             'optimizer_state_dict': optimizer.state_dict(),
             'loss': loss,
         }, "models/interim_model.tar")
+        print("Epoch: ", str(it), "Loss: ", logs['train log loss'])
     model.zero_grad()
     loss.backward()
     with torch.no_grad():
         for param in model.parameters():
             param -= learning_rate * param.grad
-    logs['train log loss'] = loss.item()
-    liveloss.update(logs)
-    liveloss.draw()
-    torch.save({
-        'epoch': it,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'loss': loss,
-    }, "models/interim_model.tar")
+torch.save({
+    'epoch': it,
+    'model_state_dict': model.state_dict(),
+    'optimizer_state_dict': optimizer.state_dict(),
+    'loss': loss,
+}, "models/interim_model.tar")
 copyfile("models/interim_model.tar", "models/final_model.tar")
 
 
 # %%
-
-
