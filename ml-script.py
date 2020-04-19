@@ -18,20 +18,18 @@ from matplotlib import pyplot as plt
 # Here, I'm going to use pandas to import data from all CSVs that i tell it to import data from into a pandas dataframe
 
 # %%
-files = ["EuroHis", "ComputerScience", "Chemistry", "Biology", "Physics", "Macro", "MusicTheory", "Statistics", "USHis", "Psych"]
+files = ["ComputerScience", "Chemistry", "Biology", "Physics", "Macro", "MusicTheory", "Statistics", "Psych"]
 data = []
-scaler = preprocessing.MinMaxScaler()
 for name in files: 
     i = files.index(name)
     full_rel_path = "raw-datasets/" + name + ".csv"
     data.append(pd.read_csv(full_rel_path, sep=",", header=None, skiprows=3)) # First 3 rows have headers that I don't want
     data[i] = data[i].drop(data[i].columns[0], axis=1)
-    data[i] = data[i].replace('<1', '0.1')
+    data[i] = data[i].replace('<1', '1')
     data[i].columns = ['AP ' + name + ' interest', name + ' interest']
     data[i]['AP ' + name + ' interest'] = pd.to_numeric(data[i]['AP ' + name + ' interest'],errors='coerce')
     data[i][name + ' interest'] = pd.to_numeric(data[i][name + ' interest'],errors='coerce')
     data[i] = data[i] / 100
-    dataset = data[i].to_numpy()
 
 # %% [markdown]
 # The above exporting of the scaled dataset is occuring just to backup data in case of failure
@@ -58,13 +56,14 @@ field_input = []
 for df in dev_stats:
     ap_input.append(np.array(df[df.columns[0]]))
     field_input.append(np.array(df[df.columns[1]]))
-print(scipy.stats.f_oneway(ap_input[0], ap_input[1], ap_input[2], ap_input[3], ap_input[4], ap_input[5], ap_input[6], ap_input[7], ap_input[8]))
-print(scipy.stats.f_oneway(field_input[0], field_input[1], field_input[2], field_input[3], field_input[4], field_input[5], field_input[6], field_input[7], field_input[8]))
+torch_ap_input = []
+torch_field_input = []
+for df in data:
+    torch_ap_input.append(np.array(df[df.columns[0]]))
+    torch_field_input.append(np.array(df[df.columns[1]]))
+# print(scipy.stats.f_oneway(ap_input[0], ap_input[1], ap_input[2], ap_input[3], ap_input[4], ap_input[5], ap_input[6], ap_input[7], ap_input[8]))
+# print(scipy.stats.f_oneway(field_input[0], field_input[1], field_input[2], field_input[3], field_input[4], field_input[5], field_input[6], field_input[7], field_input[8])
 
-# %% [markdown]
-# This above cell is able to take the data and run ANOVA
-# %% [markdown]
-# ## Part 2: Machine Learning
 
 # %%
 import torch
@@ -74,10 +73,11 @@ class PredictionModel(nn.Module):
     def __init__(self, layers):
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         super(PredictionModel, self).__init__()
+        super(PredictionModel, self).__init__()
         modules = []
         for layer in layers:
             modules.append(nn.Linear(layer[0], layer[1]))
-            modules.append(nn.ReLU())
+            modules.append(nn.ReLU(inplace=True))
         modules.pop()
         self.runModel = nn.Sequential(*modules).to(device)
     def forward(self, x):
@@ -93,15 +93,16 @@ import sys
 from torch.autograd import Variable
 from shutil import copyfile
 import os
-from livelossplot import PlotLosses 
+import itertools
 # ----------CONFIG---------
 learning_rate = 1e-4
 epochs_train = 100000
+loss_fn = torch.nn.L1Loss()
 #---------END CONFIG----------
-model = PredictionModel([[195,130],[130,30],[30,1]])
+# print(list(filter(lambda z: True if z[0] < 0.1 else False, ap_input)))
+model = PredictionModel([[1,1024],[1024,1024],[1024,1]])
 resuming = False
-loss_fn = torch.nn.MSELoss(reduction='sum')
-optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+optimizer = torch.optim.Adam(list(model.parameters()), lr=learning_rate)
 if os.path.isfile('models/interim_model.tar'):
     try:
         checkpoint = torch.load('models/interim_model.tar')
@@ -115,21 +116,20 @@ if os.path.isfile('models/interim_model.tar'):
         pr = input("Continue? [y/n]: ")
         if pr.lower() != "y":
             sys.exit(127)
-x = ap_input
-y = field_input
-liveloss = PlotLosses()
+x = Variable(torch.from_numpy(np.array(list(map(lambda inp: [inp], np.array(torch_ap_input).flatten()))))).to(torch.float).to(model.getDevice())
+y = Variable(torch.from_numpy(np.array(list(map(lambda inp: [inp], np.array(torch_field_input).flatten()))))).to(torch.float).to(model.getDevice())
+logs = []
+# model.eval()
+# print(model(Variable(torch.from_numpy(np.array(list(itertools.repeat(0.3, 1950))))).to(torch.float).to(model.getDevice())).data.cpu().numpy())
 for t in range(epochs_train):
-    x = Variable(torch.from_numpy(np.array(x))).to(torch.float).to(model.getDevice())
-    y = Variable(torch.from_numpy(np.array(y))).to(torch.float).to(model.getDevice())
     if resuming:
         it = epoch + t
         loss = loss_cp
     else: 
         it = t
-    logs = {}
     y_pred = model(x)
     loss = loss_fn(y_pred, y)
-    logs['train log loss'] = loss.item()
+    logs.append(float(loss.item()))
     if it % 100 == 99:
         torch.save({
             'epoch': it,
@@ -137,7 +137,10 @@ for t in range(epochs_train):
             'optimizer_state_dict': optimizer.state_dict(),
             'loss': loss,
         }, "models/interim_model.tar")
-        print("Epoch: ", str(it), "Loss: ", logs['train log loss'])
+        print("Epoch: ", str(it), "Loss: ", logs[len(logs)-1])
+        plt.plot(list(range(t+1)), logs)
+        plt.draw()
+        plt.pause(0.01)
     model.zero_grad()
     loss.backward()
     with torch.no_grad():
@@ -149,7 +152,8 @@ torch.save({
     'optimizer_state_dict': optimizer.state_dict(),
     'loss': loss,
 }, "models/interim_model.tar")
-copyfile("models/interim_model.tar", "models/final_model.tar")
+torch.save(model, 'models/final_model.tar')
+plt.clf()
 
 
 # %%
