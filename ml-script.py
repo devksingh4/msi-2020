@@ -96,7 +96,7 @@ import os
 import itertools
 # ----------CONFIG---------
 learning_rate = 1e-4
-epochs_train = 100000
+epochs_train = 100
 loss_fn = torch.nn.L1Loss()
 #---------END CONFIG----------
 # print(list(filter(lambda z: True if z[0] < 0.1 else False, ap_input)))
