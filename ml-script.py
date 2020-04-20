@@ -96,7 +96,7 @@ import os
 import itertools
 # ----------CONFIG---------
 learning_rate = 1e-4
-epochs_train = 100
+epochs_train = 36900
 loss_fn = torch.nn.L1Loss()
 #---------END CONFIG----------
 # print(list(filter(lambda z: True if z[0] < 0.1 else False, ap_input)))
@@ -105,7 +105,7 @@ resuming = False
 optimizer = torch.optim.Adam(list(model.parameters()), lr=learning_rate)
 if os.path.isfile('models/interim_model.tar'):
     try:
-        checkpoint = torch.load('models/interim_model.tar')
+        checkpoint = torch.load('models/interim_model.tar',map_location="cuda:0" if torch.cuda.is_available() else "cpu")
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         epoch = checkpoint['epoch']

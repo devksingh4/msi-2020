@@ -21,7 +21,7 @@ class PredictionModel(nn.Module):
     def getDevice(self):
         return torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-model = torch.load('models/final_model.tar')
+model = torch.load('models/final_model.tar',map_location="cuda:0" if torch.cuda.is_available() else "cpu")
 model.eval()
 # # inp = Variable(torch.from_numpy(np.array([float(input("enter: "))]))).to(torch.float).to(model.getDevice())
 # output=model(inp)
