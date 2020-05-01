@@ -8,11 +8,10 @@ class PredictionModel(nn.Module):
     def __init__(self, layers):
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         super(PredictionModel, self).__init__()
-        super(PredictionModel, self).__init__()
         modules = []
         for layer in layers:
             modules.append(nn.Linear(layer[0], layer[1]))
-            modules.append(nn.ReLU(inplace=True))
+            modules.append(nn.LeakyReLU())
         modules.pop()
         self.runModel = nn.Sequential(*modules).to(device)
     def forward(self, x):
@@ -21,15 +20,15 @@ class PredictionModel(nn.Module):
     def getDevice(self):
         return torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-model = torch.load('models/final_model.tar',map_location="cuda:0" if torch.cuda.is_available() else "cpu")
+
+model = torch.load('ap_models/final_model.tar',map_location="cuda:0" if torch.cuda.is_available() else "cpu")
 model.eval()
 # # inp = Variable(torch.from_numpy(np.array([float(input("enter: "))]))).to(torch.float).to(model.getDevice())
 # output=model(inp)
 # print(output.item())
 x = []
 y = []
-for val in range(0, 101):
-    val = val / 100
+for val in range(20):
     x.append(val)
     inp = Variable(torch.from_numpy(np.array([val]))).to(torch.float).to(model.getDevice())
     output=model(inp)
